@@ -1,0 +1,168 @@
+
+import numpy as np
+import pandas as pd
+import tensorflow as tf
+import matplotlib.pyplot as plt
+from sklearn.metrics import mean_squared_error
+from sklearn.preprocessing import MinMaxScaler
+from keras.models import Sequential
+from keras.layers import LSTM, Dense
+
+data = pd.read_csv('outputcp.csv',engine='python')
+#data = pd.read_csv(sys.argv[1], usecols=[1], engine='python')
+data.shape
+
+tf.random.set_seed(7001)
+data = data.values
+data.astype('float32')
+
+scaler = MinMaxScaler(feature_range=(0,1))
+data = scaler.fit_transform(data)
+
+trainsize = int(len(data) * .67)
+testsize = len(data) - trainsize
+train, test = data[0:trainsize,:], data[trainsize:len(data),:]
+
+
+def create_dataset(data, lookback):
+    X, y = [], []
+    for i in range(len(data)-lookback-1):
+        a = data[i:(i+lookback),0]
+        X.append(a)
+        y.append(data[i+lookback,0])
+    return np.array(X), np.array(y)
+
+lookback=1
+trainX, trainY = create_dataset(train,lookback)
+testX, testY = create_dataset(test,lookback)
+
+trainX = np.reshape(trainX, (trainX.shape[0], 1, trainX.shape[1]))
+testX = np.reshape(testX, (testX.shape[0], 1, testX.shape[1]))
+
+model = Sequential()
+model.add(LSTM(units=4, input_shape=(1, lookback)))
+model.add(Dense(1))
+model.compile(optimizer='adam', loss='mean_squared_error')
+model.fit(trainX, trainY, epochs=2, batch_size=1)
+
+trainPredict = model.predict(trainX)
+testPredict = model.predict(testX)
+
+testPredict = scaler.inverse_transform(testPredict)
+testY = scaler.inverse_transform([testY])
+
+trainPredict = scaler.inverse_transform(trainPredict)
+trainY = scaler.inverse_transform([trainY])
+
+Trainscore= np.sqrt(mean_squared_error(trainY[0], trainPredict[:,0]))
+print('Train Score: %.2f RMSE' % (Trainscore))
+Testscore= np.sqrt(mean_squared_error(testY[0], testPredict[:,0]))
+print('Test Score: %.2f RMSE' % (Testscore))
+
+model.save_weights('lstm_weights.h5')
+
+
+'''
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import pandas as pd
+from sklearn.preprocessing import MinMaxScaler
+
+# Load data from CSV
+df = pd.read_csv('outputcp.csv')  # Replace 'your_data.csv' with your actual CSV file
+data = df.values.reshape(-1, 1)  # Replace 'column_name' with the actual column name
+
+# Normalize the data
+scaler = MinMaxScaler()
+data_normalized = scaler.fit_transform(data)
+
+# Convert the data to PyTorch tensor
+data_tensor = torch.FloatTensor(data_normalized).view(-1, 1, 1)
+
+# Define the LSTM model
+class LSTMModel(nn.Module):
+    def __init__(self, input_size, hidden_size, output_size):
+        super(LSTMModel, self).__init__()
+        self.lstm = nn.LSTM(input_size, hidden_size, batch_first=True)
+        self.fc = nn.Linear(hidden_size, output_size)
+
+    def forward(self, x):
+        out, _ = self.lstm(x)
+        out = self.fc(out[:, -1, :])  # Take the output of the last time step
+        return out
+
+# Hyperparameters
+input_size = 1
+hidden_size = 30
+output_size = 1
+learning_rate = 0.001
+num_epochs = 10
+batch_size=30
+# Create the model, loss function, and optimizer
+model = LSTMModel(input_size, hidden_size, output_size)
+criterion = nn.MSELoss()
+optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+
+# Training loop
+for epoch in range(num_epochs):
+    for i in range(0, len(data_tensor), batch_size):
+        batch_data = data_tensor[i:i+batch_size]
+        
+        # Forward pass
+        outputs = model(batch_data)
+        batch_loss = criterion(outputs, batch_data)
+        
+        # Backward and optimize
+        optimizer.zero_grad()
+        batch_loss.backward()
+        optimizer.step()
+
+    if (epoch + 1) % 10 == 0:
+        print(f'Epoch [{epoch+1}/{num_epochs}], Loss: {loss.item():.4f}')
+
+# Test the model
+test_data = torch.arange(100, 110, 0.1).view(-1, 1, 1).float()
+with torch.no_grad():
+    predicted_labels = model(test_data)
+
+# Inverse transform to get the original scale
+predicted_labels_original_scale = scaler.inverse_transform(predicted_labels.view(-1, 1).numpy())
+
+# Print the predicted values in the original scale
+print("Predicted Values (Original Scale):")
+print(predicted_labels_original_scale)
+
+import numpy as np
+import pandas as pd
+import sys
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import MinMaxScaler
+from keras.models import Sequential
+from keras.layers import LSTM, Dense
+
+data = pd.read_csv(sys.argv[1])
+
+y = data.values[:,0]
+
+X = data.values[:,1:]
+
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+X_train = X_train.reshape((X_train.shape[0], 1, X_train.shape[1]))
+X_test = X_test.reshape((X_test.shape[0], 1, X_test.shape[1]))
+
+model = Sequential()
+model.add(LSTM(units=50, activation='relu', input_shape=(1, X_train.shape[2])))
+model.add(Dense(units=len(data.columns)))
+model.compile(optimizer='adam', loss='mean_squared_error')
+
+model.fit(X_train, y_train, epochs=10, batch_size=32, validation_data=(X_test, y_test))
+
+data_for_prediction = data.values[:, 0:]
+predictions = model.predict(data_for_prediction)
+predictions= np.round(predictions)
+
+predictions_df = pd.DataFrame(predictions, columns=data.columns)
+predictions_df.to_csv('data.csv', index=False)
+'''
